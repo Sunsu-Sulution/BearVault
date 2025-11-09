@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
                 seriesKey?: string;
                 groupByKey?: string;
                 aggregate?: "sum" | "count" | "avg";
+                columns?: string[];
             }>;
         };
 
@@ -198,19 +199,91 @@ export async function POST(request: NextRequest) {
             : [];
 
         const normalizedSuggestions = Array.isArray(chartSuggestions)
-            ? chartSuggestions.filter(
-                (chart) =>
-                    chart &&
-                    chart.type !== "table" &&
+            ? chartSuggestions.filter((chart) => {
+                if (!chart) return false;
+                if (chart.type === "table") {
+                    return true;
+                }
+                if (chart.type === "matrix") {
+                    return Array.isArray(chart.columns) && chart.columns.length > 0;
+                }
+                return (
                     typeof chart.xAxisKey === "string" &&
-                    typeof chart.yAxisKey === "string",
-            )
+                    typeof chart.yAxisKey === "string"
+                );
+            })
             : [];
 
         const existingChartDoc = await chartsCollection.findOne({ pagePath });
         const existingCharts = existingChartDoc?.charts ?? [];
 
-        const charts: ChartConfig[] = normalizedSuggestions.map((chart) => {
+        const charts: ChartConfig[] = [];
+
+        const buildChartId = () =>
+            `chart_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+        for (const chart of normalizedSuggestions) {
+            if (chart.type === "table") {
+                const tableColumns = normalizedColumns.length
+                    ? normalizedColumns
+                    : chartSuggestions && chartSuggestions.length
+                        ? Array.from(
+                            new Set(
+                                chartSuggestions
+                                    .map((suggestion) => [
+                                        suggestion?.xAxisKey,
+                                        suggestion?.yAxisKey,
+                                        suggestion?.seriesKey,
+                                        suggestion?.groupByKey,
+                                    ])
+                                    .flat()
+                                    .filter(Boolean) as string[],
+                            ),
+                        )
+                        : [];
+
+                charts.push(
+                    enforceHalfWidth({
+                        id: buildChartId(),
+                        title: sanitizeToEnglish(chart.title || "AI Table", "AI Table"),
+                        type: "table",
+                        height: 520,
+                        connectionId,
+                        database,
+                        sqlQuery: sql,
+                        columns: tableColumns,
+                        aiGenerated: true,
+                    }),
+                );
+                continue;
+            }
+
+            if (chart.type === "matrix") {
+                const matrixColumns =
+                    (Array.isArray(chart.columns) && chart.columns.length > 0
+                        ? chart.columns
+                        : normalizedColumns).filter(Boolean);
+
+                if (!matrixColumns.length) {
+                    continue;
+                }
+
+                charts.push(
+                    enforceHalfWidth({
+                        id: buildChartId(),
+                        title: sanitizeToEnglish(chart.title || "AI Metric", "AI Metric"),
+                        type: "matrix",
+                        height: 320,
+                        connectionId,
+                        database,
+                        sqlQuery: sql,
+                        columns: matrixColumns,
+                        aiGenerated: true,
+                    }),
+                );
+                continue;
+            }
+
             const chartColumns = normalizedColumns.length
                 ? normalizedColumns
                 : Array.from(
@@ -224,25 +297,27 @@ export async function POST(request: NextRequest) {
                     ),
                 );
 
-            return enforceHalfWidth({
-                id: `chart_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-                title: sanitizeToEnglish(chart.title || "AI Chart", "AI Chart"),
-                type: chart.type,
-                height: 480,
-                connectionId,
-                database,
-                sqlQuery: sql,
-                columns: chartColumns,
-                xAxisKey: chart.xAxisKey,
-                yAxisKey: chart.yAxisKey,
-                seriesKey: chart.seriesKey,
-                groupByKey: chart.groupByKey,
-                aggregate: chart.aggregate || "sum",
-                sortBy: chart.yAxisKey,
-                sortOrder: "desc",
-                aiGenerated: true,
-            });
-        });
+            charts.push(
+                enforceHalfWidth({
+                    id: buildChartId(),
+                    title: sanitizeToEnglish(chart.title || "AI Chart", "AI Chart"),
+                    type: chart.type,
+                    height: 480,
+                    connectionId,
+                    database,
+                    sqlQuery: sql,
+                    columns: chartColumns,
+                    xAxisKey: chart.xAxisKey,
+                    yAxisKey: chart.yAxisKey,
+                    seriesKey: chart.seriesKey,
+                    groupByKey: chart.groupByKey,
+                    aggregate: chart.aggregate || "sum",
+                    sortBy: chart.yAxisKey,
+                    sortOrder: "desc",
+                    aiGenerated: true,
+                }),
+            );
+        }
 
         const tableColumns = normalizedColumns.length > 0
             ? normalizedColumns
@@ -259,22 +334,24 @@ export async function POST(request: NextRequest) {
                 ),
             );
 
-        charts.push(
-            enforceHalfWidth({
-                id: `chart_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-                title:
-                    normalizedSuggestions.length && normalizedSuggestions[0].title
-                        ? `${sanitizeToEnglish(normalizedSuggestions[0].title, "AI Table")} (Table)`
-                        : `${sanitizeToEnglish(safeTabNameForCharts ?? targetSlug, "AI Table")} (Table)`,
-                type: "table",
-                height: 520,
-                connectionId,
-                database,
-                sqlQuery: sql,
-                columns: tableColumns,
-                aiGenerated: true,
-            })
-        );
+        if (!charts.some((chart) => chart.type === "table")) {
+            charts.push(
+                enforceHalfWidth({
+                    id: buildChartId(),
+                    title:
+                        normalizedSuggestions.length && normalizedSuggestions[0]?.title
+                            ? `${sanitizeToEnglish(normalizedSuggestions[0].title || "AI Table", "AI Table")} (Table)`
+                            : `${sanitizeToEnglish(safeTabNameForCharts ?? targetSlug, "AI Table")} (Table)`,
+                    type: "table",
+                    height: 520,
+                    connectionId,
+                    database,
+                    sqlQuery: sql,
+                    columns: tableColumns,
+                    aiGenerated: true,
+                }),
+            );
+        }
 
         const finalCharts = [...existingCharts, ...charts];
 
