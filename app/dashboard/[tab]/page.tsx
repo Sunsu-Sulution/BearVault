@@ -7,12 +7,14 @@ import { ChartConfigDialog } from "@/components/chart-config-dialog";
 import { SQLQueryDialog } from "@/components/sql-query-dialog";
 import { MatrixDialog } from "@/components/matrix-dialog";
 import { AiChartDialog } from "@/components/ai-chart-dialog";
+import { TabInputsPanel } from "@/components/tab-inputs-panel";
 import { Button } from "@/components/ui/button";
 import { Plus, Database, Sparkles } from "lucide-react";
 import { ChartConfig, FilterRule } from "@/types/chart";
 import { useConnections } from "@/hooks/use-connections";
 import { useDashboardTabs } from "@/hooks/use-dashboard-tabs";
 import { useNotes } from "@/hooks/use-notes";
+import { useTabInputs } from "@/hooks/use-tab-inputs";
 import { NoteComponent } from "@/components/note-component";
 import { useHelperContext } from "@/components/providers/helper-provider";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -62,6 +64,139 @@ export default function Page() {
     updateNote,
     removeNote,
   } = useNotes({ tabId });
+
+  const {
+    inputs: tabInputs,
+    isLoaded: tabInputsLoaded,
+    addInput: addTabInput,
+    updateInput: updateTabInput,
+    removeInput: removeTabInput,
+    setInputValue: setTabInputValue,
+  } = useTabInputs({ tabId });
+
+  const tabInputValueMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    tabInputs.forEach((input) => {
+      const rawKey = (input.key || "").trim();
+      if (!rawKey) return;
+      const normalizedKey = rawKey.toLowerCase();
+      const value = input.value ?? input.defaultValue ?? "";
+      map[rawKey] = value;
+      map[normalizedKey] = value;
+    });
+    return map;
+  }, [tabInputs]);
+
+  const resolveTemplateString = React.useCallback(
+    (template?: string | null): string | undefined => {
+      if (template === undefined || template === null) {
+        return undefined;
+      }
+      if (!template.includes("{{")) {
+        return template;
+      }
+      return template.replace(/{{\s*([\w.-]+)\s*}}/g, (_, key) => {
+        const normalizedKey = key.trim();
+        if (!normalizedKey) {
+          return "";
+        }
+        const lowered = normalizedKey.toLowerCase();
+        const replacement =
+          tabInputValueMap[normalizedKey] ?? tabInputValueMap[lowered];
+        return replacement ?? "";
+      });
+    },
+    [tabInputValueMap],
+  );
+
+  const resolveFiltersWithInputs = React.useCallback(
+    (filters?: FilterRule[]) => {
+      if (!filters || filters.length === 0) return undefined;
+      return filters.map((filter) => ({
+        ...filter,
+        value: resolveTemplateString(filter.value),
+        value2: resolveTemplateString(filter.value2),
+      }));
+    },
+    [resolveTemplateString],
+  );
+
+  const serializeFiltersForKey = React.useCallback((filters?: FilterRule[]) => {
+    if (!filters || filters.length === 0) {
+      return "";
+    }
+    const normalized = filters
+      .map((filter) => ({
+        field: filter.field || "",
+        op: filter.op,
+        value: filter.value ?? "",
+        value2: filter.value2 ?? "",
+      }))
+      .sort((a, b) => {
+        if (a.field < b.field) return -1;
+        if (a.field > b.field) return 1;
+        if (a.op < b.op) return -1;
+        if (a.op > b.op) return 1;
+        if (a.value < b.value) return -1;
+        if (a.value > b.value) return 1;
+        if (a.value2 < b.value2) return -1;
+        if (a.value2 > b.value2) return 1;
+        return 0;
+      });
+    return JSON.stringify(normalized);
+  }, []);
+
+  const getTableDataKey = React.useCallback(
+    (
+      connectionId: string,
+      database: string,
+      tableName: string,
+      filters?: FilterRule[],
+    ) => {
+      const serialized = serializeFiltersForKey(filters);
+      const filtersKey = serialized
+        ? `.filters.${hashSQLQuery(serialized)}`
+        : "";
+      return `${connectionId}:${database}.${tableName}${filtersKey}`;
+    },
+    [serializeFiltersForKey],
+  );
+
+  const getSqlDataKey = React.useCallback(
+    (connectionId: string, database: string, sql: string) => {
+      const hash = hashSQLQuery(sql.trim());
+      return `${connectionId}:${database}.sql.${hash}`;
+    },
+    [],
+  );
+
+  const configUsesTabInputs = React.useCallback((config: ChartConfig) => {
+    if (config.sqlQuery && config.sqlQuery.includes("{{")) {
+      return true;
+    }
+    if (
+      config.filters &&
+      config.filters.some(
+        (filter) =>
+          (filter.value && filter.value.includes("{{")) ||
+          (filter.value2 && filter.value2.includes("{{")),
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }, []);
+
+  const tabInputSignature = React.useMemo(() => {
+    if (!tabInputs.length) return "[]";
+    const entries = tabInputs
+      .map((input) => ({
+        key: (input.key || "").trim().toLowerCase(),
+        value: input.value ?? "",
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+    return JSON.stringify(entries);
+  }, [tabInputs]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSQLDialogOpen, setIsSQLDialogOpen] = useState(false);
@@ -135,149 +270,143 @@ export default function Page() {
     setColumns((prev) => ({ ...prev, [key]: data.columns.map((c) => c.name) }));
   };
 
-  const fetchRows = async (
-    connectionId: string,
-    database: string,
-    table: string,
-    cols?: string[],
-    filters?: FilterRule[],
-    useLimit: boolean = true,
-  ) => {
-    // Create a unique key that includes filters to avoid cache conflicts
-    const filtersHash =
-      filters && filters.length > 0
-        ? JSON.stringify(
-            filters.sort((a, b) =>
-              (a.field || "").localeCompare(b.field || ""),
-            ),
-          )
-        : "";
-    const filtersKey = filtersHash
-      ? `.filters.${hashSQLQuery(filtersHash)}`
-      : "";
-    const key = `${connectionId}:${database}.${table}${filtersKey}`;
-    const conn = connections.find((c) => c.id === connectionId);
-    if (!conn) return;
+  const fetchRows = React.useCallback(
+    async (
+      connectionId: string,
+      database: string,
+      table: string,
+      cols?: string[],
+      filters?: FilterRule[],
+      useLimit: boolean = true,
+    ) => {
+      const key = getTableDataKey(connectionId, database, table, filters);
+      const conn = connections.find((c) => c.id === connectionId);
+      if (!conn) return;
 
-    setLoadingTables((prev) => new Set(prev).add(key));
-    try {
-      const body: Record<string, unknown> = {
-        type: conn.type,
-        host: conn.host,
-        port: conn.port,
-        user: conn.user,
-        password: conn.password,
-        database,
-        table,
-        columns: cols,
-        filters,
-      };
+      setLoadingTables((prev) => new Set(prev).add(key));
+      try {
+        const body: Record<string, unknown> = {
+          type: conn.type,
+          host: conn.host,
+          port: conn.port,
+          user: conn.user,
+          password: conn.password,
+          database,
+          table,
+          columns: cols,
+          filters,
+        };
 
-      // Only add limit if useLimit is true
-      if (useLimit) {
-        body.limit = 1000000;
-      }
-
-      const res = await fetch("/api/db/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as { rows?: unknown[] };
-      const newRows = data.rows ?? [];
-
-      // Merge with existing data to preserve all columns
-      setRowsByTable((prev) => {
-        const existing = prev[key] as Record<string, unknown>[] | undefined;
-        if (!existing || existing.length === 0) {
-          return { ...prev, [key]: newRows };
+        // Only add limit if useLimit is true
+        if (useLimit) {
+          body.limit = 1000000;
         }
 
-        // If new rows is empty or different length, prefer new data if it has more columns
-        if (newRows.length === 0) {
-          return prev; // Keep existing if new is empty
-        }
+        const res = await fetch("/api/db/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as { rows?: unknown[] };
+        const newRows = data.rows ?? [];
 
-        const existingKeys = existing[0]
-          ? Object.keys(existing[0] as Record<string, unknown>)
-          : [];
-        const newKeys = newRows[0]
-          ? Object.keys(newRows[0] as Record<string, unknown>)
-          : [];
-
-        // If new data has all existing keys, use it (it might have more columns)
-        const hasAllExisting =
-          existingKeys.length === 0 ||
-          existingKeys.every((k) => {
-            const exactMatch = newKeys.find((nk) => nk === k);
-            const caseMatch = newKeys.find(
-              (nk) => nk.toLowerCase() === k.toLowerCase(),
-            );
-            return exactMatch || caseMatch;
-          });
-
-        if (hasAllExisting) {
-          // New data has all existing columns, use it directly
-          return { ...prev, [key]: newRows };
-        }
-
-        // Merge: keep existing columns and add new ones
-        const allKeys = Array.from(new Set([...existingKeys, ...newKeys]));
-        const minLength = Math.min(existing.length, newRows.length);
-        const merged: Record<string, unknown>[] = [];
-
-        for (let idx = 0; idx < minLength; idx++) {
-          const existingRow = existing[idx] as Record<string, unknown>;
-          const newRow = newRows[idx] as Record<string, unknown>;
-          const mergedRow: Record<string, unknown> = {};
-
-          for (const k of allKeys) {
-            // Prefer new value if exists, otherwise keep existing
-            const newKey = newKeys.find(
-              (nk) => nk === k || nk.toLowerCase() === k.toLowerCase(),
-            );
-            const existingKey = existingKeys.find(
-              (ek) => ek === k || ek.toLowerCase() === k.toLowerCase(),
-            );
-
-            if (
-              newKey &&
-              newRow[newKey] !== undefined &&
-              newRow[newKey] !== null
-            ) {
-              mergedRow[k] = newRow[newKey];
-            } else if (existingKey && existingRow[existingKey] !== undefined) {
-              mergedRow[k] = existingRow[existingKey];
-            }
+        // Merge with existing data to preserve all columns
+        setRowsByTable((prev) => {
+          const existing = prev[key] as Record<string, unknown>[] | undefined;
+          if (!existing || existing.length === 0) {
+            return { ...prev, [key]: newRows };
           }
 
-          merged.push(mergedRow);
-        }
+          // If new rows is empty or different length, prefer new data if it has more columns
+          if (newRows.length === 0) {
+            return prev; // Keep existing if new is empty
+          }
 
-        // Add remaining rows from whichever is longer
-        if (existing.length > minLength) {
-          merged.push(...existing.slice(minLength));
-        } else if (newRows.length > minLength) {
-          merged.push(
-            ...(newRows.slice(minLength) as Record<string, unknown>[]),
-          );
-        }
+          const existingKeys = existing[0]
+            ? Object.keys(existing[0] as Record<string, unknown>)
+            : [];
+          const newKeys = newRows[0]
+            ? Object.keys(newRows[0] as Record<string, unknown>)
+            : [];
 
-        return { ...prev, [key]: merged.length > 0 ? merged : newRows };
-      });
+          // If new data has all existing keys, use it (it might have more columns)
+          const hasAllExisting =
+            existingKeys.length === 0 ||
+            existingKeys.every((k) => {
+              const exactMatch = newKeys.find((nk) => nk === k);
+              const caseMatch = newKeys.find(
+                (nk) => nk.toLowerCase() === k.toLowerCase(),
+              );
+              return exactMatch || caseMatch;
+            });
 
-      return newRows as Record<string, unknown>[];
-    } catch (e) {
-      console.error("Error fetching rows:", e);
-      return [];
-    } finally {
-      setLoadingTables((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
+          if (hasAllExisting) {
+            // New data has all existing columns, use it directly
+            return { ...prev, [key]: newRows };
+          }
+
+          // Merge: keep existing columns and add new ones
+          const allKeys = Array.from(new Set([...existingKeys, ...newKeys]));
+          const minLength = Math.min(existing.length, newRows.length);
+          const merged: Record<string, unknown>[] = [];
+
+          for (let idx = 0; idx < minLength; idx++) {
+            const existingRow = existing[idx] as Record<string, unknown>;
+            const newRow = newRows[idx] as Record<string, unknown>;
+            const mergedRow: Record<string, unknown> = {};
+
+            for (const k of allKeys) {
+              // Prefer new value if exists, otherwise keep existing
+              const newKey = newKeys.find(
+                (nk) => nk === k || nk.toLowerCase() === k.toLowerCase(),
+              );
+              const existingKey = existingKeys.find(
+                (ek) => ek === k || ek.toLowerCase() === k.toLowerCase(),
+              );
+
+              if (
+                newKey &&
+                newRow[newKey] !== undefined &&
+                newRow[newKey] !== null
+              ) {
+                mergedRow[k] = newRow[newKey];
+              } else if (
+                existingKey &&
+                existingRow[existingKey] !== undefined
+              ) {
+                mergedRow[k] = existingRow[existingKey];
+              }
+            }
+
+            merged.push(mergedRow);
+          }
+
+          // Add remaining rows from whichever is longer
+          if (existing.length > minLength) {
+            merged.push(...existing.slice(minLength));
+          } else if (newRows.length > minLength) {
+            merged.push(
+              ...(newRows.slice(minLength) as Record<string, unknown>[]),
+            );
+          }
+
+          return { ...prev, [key]: merged.length > 0 ? merged : newRows };
+        });
+
+        return newRows as Record<string, unknown>[];
+      } catch (e) {
+        console.error("Error fetching rows:", e);
+        return [];
+      } finally {
+        setLoadingTables((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [connections, getTableDataKey],
+  );
 
   // if needed we can compute available fields per current dialog table
 
@@ -295,54 +424,62 @@ export default function Page() {
     setIsAiDialogOpen(true);
   };
 
-  const fetchSQLRows = async (
-    connectionId: string,
-    database: string,
-    sqlQuery: string,
-    useLimit: boolean = true,
-  ) => {
-    const queryHash = hashSQLQuery(sqlQuery.trim());
-    const key = `${connectionId}:${database}.sql.${queryHash}`;
-    const conn = connections.find((c) => c.id === connectionId);
-    if (!conn) return;
+  const fetchSQLRows = React.useCallback(
+    async (
+      connectionId: string,
+      database: string,
+      sqlQuery: string,
+      useLimit: boolean = true,
+    ) => {
+      const resolvedSql = (resolveTemplateString(sqlQuery) ?? "").trim();
+      const key = getSqlDataKey(connectionId, database, resolvedSql || "");
+      const conn = connections.find((c) => c.id === connectionId);
+      if (!conn) return;
 
-    setLoadingTables((prev) => new Set(prev).add(key));
-    try {
-      const body: Record<string, unknown> = {
-        type: conn.type,
-        host: conn.host,
-        port: conn.port,
-        user: conn.user,
-        password: conn.password,
-        database,
-        sql: sqlQuery,
-      };
+      setLoadingTables((prev) => new Set(prev).add(key));
+      try {
+        if (!resolvedSql) {
+          setRowsByTable((prev) => ({ ...prev, [key]: [] }));
+          return [];
+        }
 
-      // Only add limit if useLimit is true
-      if (useLimit) {
-        body.limit = 1000000;
+        const body: Record<string, unknown> = {
+          type: conn.type,
+          host: conn.host,
+          port: conn.port,
+          user: conn.user,
+          password: conn.password,
+          database,
+          sql: resolvedSql,
+        };
+
+        // Only add limit if useLimit is true
+        if (useLimit) {
+          body.limit = 1000000;
+        }
+
+        const res = await fetch("/api/db/query-sql", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as { rows?: unknown[] };
+        const newRows = data.rows ?? [];
+        setRowsByTable((prev) => ({ ...prev, [key]: newRows }));
+        return newRows as Record<string, unknown>[];
+      } catch (e) {
+        console.error("Error fetching SQL rows:", e);
+        return [];
+      } finally {
+        setLoadingTables((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
       }
-
-      const res = await fetch("/api/db/query-sql", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as { rows?: unknown[] };
-      const newRows = data.rows ?? [];
-      setRowsByTable((prev) => ({ ...prev, [key]: newRows }));
-      return newRows as Record<string, unknown>[];
-    } catch (e) {
-      console.error("Error fetching SQL rows:", e);
-      return [];
-    } finally {
-      setLoadingTables((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
+    },
+    [connections, getSqlDataKey, resolveTemplateString],
+  );
 
   const handleDuplicateChart = (config: ChartConfig) => {
     const currentIndex = configs.findIndex((c) => c.id === config.id);
@@ -356,6 +493,7 @@ export default function Page() {
     if (config.sqlQuery && config.connectionId && config.database) {
       fetchSQLRows(config.connectionId, config.database, config.sqlQuery);
     } else if (config.connectionId && config.database && config.tableName) {
+      const resolvedFilters = resolveFiltersWithInputs(config.filters);
       const neededCols = Array.from(
         new Set(
           [
@@ -372,7 +510,7 @@ export default function Page() {
         config.database,
         config.tableName,
         neededCols.length ? neededCols : undefined,
-        config.filters,
+        resolvedFilters,
       );
     }
   };
@@ -384,6 +522,7 @@ export default function Page() {
     // load rows for this chart's table if possible
     const cfg = config as Partial<ChartConfig> & { tableName?: string };
     if (cfg.connectionId && cfg.database && cfg.tableName) {
+      const resolvedFilters = resolveFiltersWithInputs(config.filters);
       const neededCols = Array.from(
         new Set(
           [
@@ -398,7 +537,7 @@ export default function Page() {
         cfg.database,
         cfg.tableName,
         neededCols.length ? neededCols : undefined,
-        config.filters,
+        resolvedFilters,
       );
     }
   };
@@ -454,8 +593,12 @@ export default function Page() {
       }
       // Handle SQL query charts (including matrix)
       if (c.connectionId && c.database && c.sqlQuery) {
-        const queryHash = hashSQLQuery(c.sqlQuery.trim());
-        const key = `${c.connectionId}:${c.database}.sql.${queryHash}`;
+        const resolvedSql = (resolveTemplateString(c.sqlQuery) ?? "").trim();
+        const key = getSqlDataKey(
+          c.connectionId,
+          c.database,
+          resolvedSql || "",
+        );
         const existingData = rowsByTable[key] as
           | Record<string, unknown>[]
           | undefined;
@@ -470,18 +613,13 @@ export default function Page() {
       }
       // Handle table-based charts
       if (c.connectionId && c.database && c.tableName) {
-        const filtersHash =
-          c.filters && c.filters.length > 0
-            ? JSON.stringify(
-                c.filters.sort((a, b) =>
-                  (a.field || "").localeCompare(b.field || ""),
-                ),
-              )
-            : "";
-        const filtersKey = filtersHash
-          ? `.filters.${hashSQLQuery(filtersHash)}`
-          : "";
-        const key = `${c.connectionId}:${c.database}.${c.tableName}${filtersKey}`;
+        const resolvedFilters = resolveFiltersWithInputs(c.filters);
+        const key = getTableDataKey(
+          c.connectionId,
+          c.database,
+          c.tableName,
+          resolvedFilters,
+        );
         const neededCols = Array.from(
           new Set(
             [
@@ -521,7 +659,7 @@ export default function Page() {
             c.database,
             c.tableName,
             neededCols.length ? neededCols : undefined,
-            c.filters,
+            resolvedFilters,
           ).then(() => undefined),
         );
       }
@@ -531,6 +669,60 @@ export default function Page() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configs, connections.length]);
+
+  useEffect(() => {
+    if (!configs?.length || !connections?.length) return;
+    if (!tabInputsLoaded) return;
+    const pending: Array<Promise<void>> = [];
+    for (const config of configs) {
+      if (!configUsesTabInputs(config)) continue;
+      if (config.sqlQuery && config.connectionId && config.database) {
+        pending.push(
+          fetchSQLRows(
+            config.connectionId,
+            config.database,
+            config.sqlQuery,
+          ).then(() => undefined),
+        );
+        continue;
+      }
+      if (config.connectionId && config.database && config.tableName) {
+        const resolvedFilters = resolveFiltersWithInputs(config.filters);
+        const neededCols = Array.from(
+          new Set(
+            [
+              ...(config.columns || []),
+              config.xAxisKey || "",
+              config.yAxisKey || "",
+              config.groupByKey || "",
+              config.seriesKey || "",
+            ].filter(Boolean) as string[],
+          ),
+        );
+        pending.push(
+          fetchRows(
+            config.connectionId,
+            config.database,
+            config.tableName,
+            neededCols.length ? neededCols : undefined,
+            resolvedFilters,
+          ).then(() => undefined),
+        );
+      }
+    }
+    if (pending.length) {
+      void Promise.allSettled(pending);
+    }
+  }, [
+    configs,
+    connections.length,
+    tabInputSignature,
+    tabInputsLoaded,
+    configUsesTabInputs,
+    resolveFiltersWithInputs,
+    fetchRows,
+    fetchSQLRows,
+  ]);
 
   return (
     <div className="p-5 space-y-4 relative" data-content-container>
@@ -571,6 +763,21 @@ export default function Page() {
         )}
       </div>
 
+      {(tabInputs.length > 0 || (!isLocked && tabInputsLoaded)) && (
+        <TabInputsPanel
+          inputs={tabInputs}
+          isLocked={isLocked}
+          isLoaded={tabInputsLoaded}
+          allowValueEditingWhenLocked
+          onAddInput={() => {
+            addTabInput();
+          }}
+          onUpdateInput={updateTabInput}
+          onRemoveInput={removeTabInput}
+          onSetValue={setTabInputValue}
+        />
+      )}
+
       {configs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed rounded-lg">
           <p className="text-muted-foreground mb-4">ยังไม่มีกราฟในหน้านี้</p>
@@ -587,29 +794,33 @@ export default function Page() {
           }`}
         >
           {configs.map((config, index) => {
-            // Determine data key based on chart type (table or SQL query)
+            const hasSqlSource =
+              !!config.sqlQuery && !!config.connectionId && !!config.database;
+            const hasTableSource =
+              !!config.tableName && !!config.connectionId && !!config.database;
+
+            const resolvedSqlForConfig = hasSqlSource
+              ? (resolveTemplateString(config.sqlQuery) ?? "").trim()
+              : "";
+
+            const resolvedFiltersForConfig = hasTableSource
+              ? resolveFiltersWithInputs(config.filters)
+              : undefined;
+
             let dataKey: string | null = null;
-            if (config.sqlQuery && config.connectionId && config.database) {
-              const queryHash = hashSQLQuery(config.sqlQuery.trim());
-              dataKey = `${config.connectionId}:${config.database}.sql.${queryHash}`;
-            } else if (
-              config.tableName &&
-              config.connectionId &&
-              config.database
-            ) {
-              // Include filters in key for table-based charts
-              const filtersHash =
-                config.filters && config.filters.length > 0
-                  ? JSON.stringify(
-                      config.filters.sort((a, b) =>
-                        (a.field || "").localeCompare(b.field || ""),
-                      ),
-                    )
-                  : "";
-              const filtersKey = filtersHash
-                ? `.filters.${hashSQLQuery(filtersHash)}`
-                : "";
-              dataKey = `${config.connectionId}:${config.database}.${config.tableName}${filtersKey}`;
+            if (hasSqlSource) {
+              dataKey = getSqlDataKey(
+                config.connectionId!,
+                config.database!,
+                resolvedSqlForConfig || "",
+              );
+            } else if (hasTableSource) {
+              dataKey = getTableDataKey(
+                config.connectionId!,
+                config.database!,
+                config.tableName!,
+                resolvedFiltersForConfig,
+              );
             }
             const isLoading = dataKey ? loadingTables.has(dataKey) : false;
             const hasWidth =
@@ -684,13 +895,16 @@ export default function Page() {
                         config.connectionId &&
                         config.database
                       ? async () => {
+                          const latestFilters = resolveFiltersWithInputs(
+                            config.filters,
+                          );
                           return (
                             (await fetchRows(
                               config.connectionId!,
                               config.database!,
                               config.tableName!,
                               config.columns,
-                              config.filters,
+                              latestFilters,
                               false, // Don't use limit - fetch all data
                             )) ?? []
                           );
@@ -737,12 +951,14 @@ export default function Page() {
                               c.database,
                               c.tableName,
                             );
+                            const resolvedFiltersForEdit =
+                              resolveFiltersWithInputs(c.filters);
                             fetchRows(
                               c.connectionId,
                               c.database,
                               c.tableName,
                               c.columns,
-                              c.filters,
+                              resolvedFiltersForEdit,
                             );
                             setIsDialogOpen(true);
                           }
@@ -784,6 +1000,7 @@ export default function Page() {
                     if (!isLocked) {
                       updateChart(id, { filters });
                     }
+                    const resolvedFilters = resolveFiltersWithInputs(filters);
                     // Refetch data with filters (works in both locked and unlocked mode)
                     if (cfg.sqlQuery && cfg.connectionId && cfg.database) {
                       fetchSQLRows(
@@ -802,6 +1019,8 @@ export default function Page() {
                             ...(cfg.columns || []),
                             cfg.xAxisKey || "",
                             cfg.yAxisKey || "",
+                            cfg.groupByKey || "",
+                            cfg.seriesKey || "",
                           ].filter(Boolean) as string[],
                         ),
                       );
@@ -810,7 +1029,7 @@ export default function Page() {
                         cfg.database,
                         cfg.tableName,
                         neededCols.length ? neededCols : undefined,
-                        filters,
+                        resolvedFilters,
                       );
                     }
                   }}
