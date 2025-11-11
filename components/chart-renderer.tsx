@@ -118,7 +118,10 @@ export function ChartRenderer({
   });
   const [toastOpen, setToastOpen] = React.useState(false);
   const [rowDetailDialogOpen, setRowDetailDialogOpen] = React.useState(false);
-  const [selectedRowData, setSelectedRowData] = React.useState<Record<string, unknown> | null>(null);
+  const [selectedRowData, setSelectedRowData] = React.useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const cardRef = React.useRef<HTMLDivElement>(null);
   const gridRef = React.useRef<AgGridReact>(null);
 
@@ -346,7 +349,7 @@ export function ChartRenderer({
     // For table-based charts, filters are applied at query level
     // For SQL query charts, apply client-side filtering
     if (!config.sqlQuery) {
-    return projected;
+      return projected;
     }
 
     // Apply client-side filters for SQL query charts
@@ -1151,9 +1154,9 @@ export function ChartRenderer({
         return (
           <div
             className="w-full ag-theme-quartz"
-            style={{ 
-              height: localHeight, 
-              width: "100%", 
+            style={{
+              height: localHeight,
+              width: "100%",
               overflowX: "auto",
               userSelect: "text",
               WebkitUserSelect: "text",
@@ -1523,9 +1526,7 @@ export function ChartRenderer({
           </div>
         );
 
-      case "matrix":
-        // Matrix displays single value from SQL query result
-        // Expected: 1 row, can have multiple columns but typically 1 value
+      case "matrix": {
         if (!filteredData || filteredData.length === 0) {
           return (
             <div
@@ -1539,34 +1540,124 @@ export function ChartRenderer({
           );
         }
 
-        // Get first row and use selected column from config.columns
         const firstRow = filteredData[0] as Record<string, unknown>;
-        const matrixColumn =
+        const availableKeys = Object.keys(firstRow);
+        const selectedColumns =
           config.columns && config.columns.length > 0
-            ? config.columns[0]
-            : Object.keys(firstRow)[0];
-        const matrixValue = firstRow[matrixColumn];
+            ? config.columns
+            : availableKeys;
+
+        const metrics = selectedColumns
+          .map((column) => {
+            const matchedKey =
+              availableKeys.find((key) => key === column) ||
+              availableKeys.find(
+                (key) => key.toLowerCase() === column.toLowerCase(),
+              );
+            const resolvedKey = matchedKey ?? column;
+            const value =
+              matchedKey !== undefined
+                ? firstRow[matchedKey]
+                : firstRow[column as keyof typeof firstRow];
+            return {
+              key: resolvedKey,
+              label: column,
+              value,
+            };
+          })
+          .filter(
+            (metric) =>
+              metric.value !== undefined && metric.value !== null && metric.key,
+          );
+
+        if (!metrics.length) {
+          return (
+            <div
+              className="w-full flex items-center justify-center border rounded-lg bg-muted/50"
+              style={{ height: localHeight }}
+            >
+              <p className="text-muted-foreground">
+                ไม่พบคอลัมน์ที่เลือกในข้อมูล กรุณาตรวจสอบการตั้งค่า Matrix
+              </p>
+            </div>
+          );
+        }
+
+        if (metrics.length === 1) {
+          const metric = metrics[0];
+          const rawValue = metric.value;
+          const formatted = formatNumber(rawValue);
+          const isNumeric =
+            typeof rawValue === "number" && Number.isFinite(rawValue);
+          return (
+            <div
+              className="w-full flex items-center justify-center"
+              style={{ height: localHeight }}
+            >
+              <div className="text-center space-y-2">
+                <div
+                  className={`${
+                    isNumeric ? "text-6xl" : "text-4xl"
+                  } font-bold wrap-break-word`}
+                  style={{ color: config.color || "var(--chart-1)" }}
+                >
+                  {isNumeric ? formatted : formatted || String(rawValue ?? "")}
+                </div>
+                <div className="text-lg text-muted-foreground">
+                  {metric.label}
+                </div>
+                {!isNumeric && formatted !== String(rawValue ?? "") && (
+                  <div className="text-xs text-muted-foreground break-all">
+                    {String(rawValue ?? "")}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
 
         return (
-          <div
-            className="w-full flex items-center justify-center"
-            style={{ height: localHeight }}
-          >
-            <div className="text-center space-y-2">
-              <div
-                className="text-6xl font-bold"
-                style={{ color: config.color || "var(--chart-1)" }}
-              >
-                {formatNumber(matrixValue)}
+          <div className="w-full space-y-3" style={{ minHeight: localHeight }}>
+            {filteredData.length > 1 && (
+              <div className="flex justify-end text-xs text-muted-foreground">
+                แสดงเฉพาะแถวแรกจาก {filteredData.length.toLocaleString()} แถว
               </div>
-              {matrixColumn && (
-                <div className="text-lg text-muted-foreground">
-                  {matrixColumn}
-                </div>
-              )}
+            )}
+            <div className="rounded-2xl border bg-background/80 divide-y">
+              {metrics.map((metric, index) => {
+                const rawValue = metric.value;
+                const formatted = formatNumber(rawValue);
+                const isNumeric =
+                  typeof rawValue === "number" && Number.isFinite(rawValue);
+                return (
+                  <div
+                    key={`${metric.key}-${index}`}
+                    className="flex items-center gap-3 px-4 py-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {metric.label}
+                      </div>
+                    </div>
+                    <div
+                      className={`text-right ${
+                        isNumeric
+                          ? "text-2xl sm:text-3xl font-bold tracking-tight"
+                          : "text-base font-semibold wrap-break-word max-w-[50%]"
+                      }`}
+                      style={{ color: config.color || "var(--chart-1)" }}
+                    >
+                      {isNumeric
+                        ? formatted
+                        : formatted || String(rawValue ?? "")}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
+      }
 
       case "markdown":
         if (!config.markdownContent) {
@@ -1615,27 +1706,27 @@ export function ChartRenderer({
 
   return (
     <>
-    <Card
-      ref={cardRef}
+      <Card
+        ref={cardRef}
         id={`chart-${config.id}`}
-      className={`w-full group ${isDragging ? "opacity-50" : ""} ${
-        isResizing || externalIsResizing
-          ? "select-none shadow-lg ring-2 ring-primary/20"
-          : ""
+        className={`w-full group ${isDragging ? "opacity-50" : ""} ${
+          isResizing || externalIsResizing
+            ? "select-none shadow-lg ring-2 ring-primary/20"
+            : ""
         } transition-all relative ${config.type === "markdown" ? "py-0" : ""}`}
-      style={{
-        width: "100%",
-      }}
-      draggable={!!onDragStart && !isResizing}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
+        style={{
+          width: "100%",
+        }}
+        draggable={!!onDragStart && !isResizing}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
         <CardHeader
           className={`flex flex-row items-center justify-between space-y-0 ${
             config.type === "markdown" ? "p-0" : "pb-2"
           }`}
         >
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             {config.type !== "markdown" && (
               <>
                 {config.aiGenerated && (
@@ -1647,10 +1738,10 @@ export function ChartRenderer({
                     AI
                   </span>
                 )}
-          <CardTitle className="truncate">{config.title}</CardTitle>
+                <CardTitle className="truncate">{config.title}</CardTitle>
               </>
             )}
-        </div>
+          </div>
           <div className="flex gap-2 shrink-0">
             {config.type === "table" && filteredData.length > 0 && (
               <DropdownMenu>
@@ -1701,59 +1792,59 @@ export function ChartRenderer({
             </Button>
             {(onEdit || onDelete || onDuplicate || onUpdate) && (
               <>
-            {onEdit && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onEdit(config)}
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-            )}
-            {onDuplicate && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onDuplicate(config)}
-                title="Duplicate"
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            )}
-            {onDelete && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onDelete(config.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
+                {onEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onEdit(config)}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                )}
+                {onDuplicate && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onDuplicate(config)}
+                    title="Duplicate"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                )}
+                {onDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onDelete(config.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </>
-        )}
+            )}
           </div>
-      </CardHeader>
+        </CardHeader>
         {onUpdate && !isMobile && config.type !== "markdown" && (
-        <div
-          className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize bg-background/80 hover:bg-background border border-border rounded-tl-lg items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex z-10"
-          onMouseDown={handleResizeStart}
-          title="ลากเพื่อปรับขนาด"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="12"
-            height="12"
-            fill="currentColor"
-            className="text-muted-foreground"
+          <div
+            className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize bg-background/80 hover:bg-background border border-border rounded-tl-lg items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex z-10"
+            onMouseDown={handleResizeStart}
+            title="ลากเพื่อปรับขนาด"
           >
-            <path d="M22 22H20V20H22V22Z" />
-            <path d="M22 18H20V16H22V18Z" />
-            <path d="M18 22H16V20H18V22Z" />
-            <path d="M18 18H16V16H18V18Z" />
-          </svg>
-        </div>
-      )}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="12"
+              height="12"
+              fill="currentColor"
+              className="text-muted-foreground"
+            >
+              <path d="M22 22H20V20H22V22Z" />
+              <path d="M22 18H20V16H22V18Z" />
+              <path d="M18 22H16V20H18V22Z" />
+              <path d="M18 18H16V16H18V18Z" />
+            </svg>
+          </div>
+        )}
         <CardContent
           className={
             config.type === "markdown"
@@ -1764,237 +1855,237 @@ export function ChartRenderer({
           {isFilterOpen &&
             config.type !== "matrix" &&
             config.type !== "markdown" && (
-          <div className="mb-3 p-3 border rounded-md flex flex-col gap-2">
-            {filters.map((f, idx) => (
+              <div className="mb-3 p-3 border rounded-md flex flex-col gap-2">
+                {filters.map((f, idx) => (
                   <div
                     key={idx}
                     className="flex flex-col md:flex-row gap-2 items-stretch md:items-center"
                   >
-                <select
-                      className="border rounded px-2 py-1 text-sm w-full md:w-auto md:min-w-[120px]"
-                  value={f.field}
-                  onChange={(e) => {
-                    const next = [...filters];
-                    next[idx] = { ...next[idx], field: e.target.value };
-                    setFilters(next);
-                    onUpdate?.(config.id, { filters: next });
-                    onFilterChange?.(config.id, next);
-                  }}
-                >
-                  <option value="">Field</option>
-                  {allFields.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                {(() => {
-                  const fType = fieldTypes[f.field] || "string";
-                  const baseOps =
-                    fType === "date"
-                      ? ([
-                          "today",
-                              "this_week",
-                              "last_week",
-                          "before",
-                          "after",
-                          "between",
-                          "last_days",
-                          "last_months",
-                          "equals",
-                          "blank",
-                          "not_blank",
-                        ] as FilterOperator[])
-                      : fType === "number"
-                      ? ([
-                          "equals",
-                          "gt",
-                          "lt",
-                          "blank",
-                          "not_blank",
-                        ] as FilterOperator[])
-                      : ([
-                          "contains",
-                          "not_contains",
-                          "equals",
-                          "not_equals",
-                          "begins_with",
-                          "ends_with",
-                          "blank",
-                          "not_blank",
-                        ] as FilterOperator[]);
-                  // ให้ dropdown แสดงค่า op ปัจจุบันแม้จะยังไม่อยู่ในชุด baseOps (กรณีเพิ่งรีเฟรชและยังเดาชนิดคอลัมน์ไม่ได้)
-                  const ops = Array.from(
-                    new Set<FilterOperator>([
-                      ...(baseOps as FilterOperator[]),
-                      f.op as FilterOperator,
-                    ]),
-                  );
-                  const currentOp = f.op as FilterOperator;
-                  return (
                     <select
-                          className="border rounded px-2 py-1 text-sm w-full md:w-auto md:min-w-[150px]"
-                      value={currentOp}
+                      className="border rounded px-2 py-1 text-sm w-full md:w-auto md:min-w-[120px]"
+                      value={f.field}
                       onChange={(e) => {
                         const next = [...filters];
-                        const newOp = e.target.value as FilterOperator;
-                        next[idx] = {
-                          ...next[idx],
-                          op: newOp,
-                          // Clear value2 if not between operator
-                          value2:
-                                newOp === "between"
-                                  ? next[idx].value2
-                                  : undefined,
-                          // Clear value for special operators
-                          value:
-                                newOp === "today" ||
-                                newOp === "this_week" ||
-                                newOp === "last_week"
-                              ? undefined
-                              : next[idx].value || "",
-                        };
+                        next[idx] = { ...next[idx], field: e.target.value };
                         setFilters(next);
                         onUpdate?.(config.id, { filters: next });
                         onFilterChange?.(config.id, next);
                       }}
                     >
-                      {ops.map((o) => (
-                        <option key={o} value={o}>
-                          {o === "between"
-                            ? "ระหว่าง (between)"
-                            : o === "last_days"
-                            ? "ย้อนหลัง (last X days)"
-                            : o === "last_months"
-                            ? "ย้อนหลัง (last X months)"
-                            : o === "today"
-                            ? "วันนี้ (today)"
+                      <option value="">Field</option>
+                      {allFields.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                    {(() => {
+                      const fType = fieldTypes[f.field] || "string";
+                      const baseOps =
+                        fType === "date"
+                          ? ([
+                              "today",
+                              "this_week",
+                              "last_week",
+                              "before",
+                              "after",
+                              "between",
+                              "last_days",
+                              "last_months",
+                              "equals",
+                              "blank",
+                              "not_blank",
+                            ] as FilterOperator[])
+                          : fType === "number"
+                          ? ([
+                              "equals",
+                              "gt",
+                              "lt",
+                              "blank",
+                              "not_blank",
+                            ] as FilterOperator[])
+                          : ([
+                              "contains",
+                              "not_contains",
+                              "equals",
+                              "not_equals",
+                              "begins_with",
+                              "ends_with",
+                              "blank",
+                              "not_blank",
+                            ] as FilterOperator[]);
+                      // ให้ dropdown แสดงค่า op ปัจจุบันแม้จะยังไม่อยู่ในชุด baseOps (กรณีเพิ่งรีเฟรชและยังเดาชนิดคอลัมน์ไม่ได้)
+                      const ops = Array.from(
+                        new Set<FilterOperator>([
+                          ...(baseOps as FilterOperator[]),
+                          f.op as FilterOperator,
+                        ]),
+                      );
+                      const currentOp = f.op as FilterOperator;
+                      return (
+                        <select
+                          className="border rounded px-2 py-1 text-sm w-full md:w-auto md:min-w-[150px]"
+                          value={currentOp}
+                          onChange={(e) => {
+                            const next = [...filters];
+                            const newOp = e.target.value as FilterOperator;
+                            next[idx] = {
+                              ...next[idx],
+                              op: newOp,
+                              // Clear value2 if not between operator
+                              value2:
+                                newOp === "between"
+                                  ? next[idx].value2
+                                  : undefined,
+                              // Clear value for special operators
+                              value:
+                                newOp === "today" ||
+                                newOp === "this_week" ||
+                                newOp === "last_week"
+                                  ? undefined
+                                  : next[idx].value || "",
+                            };
+                            setFilters(next);
+                            onUpdate?.(config.id, { filters: next });
+                            onFilterChange?.(config.id, next);
+                          }}
+                        >
+                          {ops.map((o) => (
+                            <option key={o} value={o}>
+                              {o === "between"
+                                ? "ระหว่าง (between)"
+                                : o === "last_days"
+                                ? "ย้อนหลัง (last X days)"
+                                : o === "last_months"
+                                ? "ย้อนหลัง (last X months)"
+                                : o === "today"
+                                ? "วันนี้ (today)"
                                 : o === "this_week"
                                 ? "สัปดาห์นี้ (this week)"
                                 : o === "last_week"
                                 ? "สัปดาห์ที่แล้ว (last week)"
-                            : o === "before"
-                            ? "ก่อน (before)"
-                            : o === "after"
-                            ? "หลัง (after)"
-                            : o === "equals"
-                            ? "เท่ากับ (equals)"
-                            : o === "not_equals"
-                            ? "ไม่เท่ากับ (not equals)"
-                            : o === "contains"
-                            ? "ประกอบด้วย (contains)"
-                            : o === "not_contains"
-                            ? "ไม่ประกอบด้วย (not contains)"
-                            : o === "begins_with"
-                            ? "ขึ้นต้นด้วย (begins with)"
-                            : o === "ends_with"
-                            ? "ลงท้ายด้วย (ends with)"
-                            : o === "gt"
-                            ? "มากกว่า (greater than)"
-                            : o === "lt"
-                            ? "น้อยกว่า (less than)"
-                            : o === "blank"
-                            ? "ว่าง (blank)"
-                            : o === "not_blank"
-                            ? "ไม่ว่าง (not blank)"
-                            : o}
-                        </option>
-                      ))}
-                    </select>
-                  );
-                })()}
-                {f.op === "between" && fieldTypes[f.field] === "date" && (
+                                : o === "before"
+                                ? "ก่อน (before)"
+                                : o === "after"
+                                ? "หลัง (after)"
+                                : o === "equals"
+                                ? "เท่ากับ (equals)"
+                                : o === "not_equals"
+                                ? "ไม่เท่ากับ (not equals)"
+                                : o === "contains"
+                                ? "ประกอบด้วย (contains)"
+                                : o === "not_contains"
+                                ? "ไม่ประกอบด้วย (not contains)"
+                                : o === "begins_with"
+                                ? "ขึ้นต้นด้วย (begins with)"
+                                : o === "ends_with"
+                                ? "ลงท้ายด้วย (ends with)"
+                                : o === "gt"
+                                ? "มากกว่า (greater than)"
+                                : o === "lt"
+                                ? "น้อยกว่า (less than)"
+                                : o === "blank"
+                                ? "ว่าง (blank)"
+                                : o === "not_blank"
+                                ? "ไม่ว่าง (not blank)"
+                                : o}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
+                    {f.op === "between" && fieldTypes[f.field] === "date" && (
                       <div className="flex flex-col md:flex-row gap-2 flex-1">
-                    <input
+                        <input
                           className="border rounded px-2 py-1 text-sm flex-1 min-w-0"
-                      type="date"
-                      placeholder="Start date"
-                      value={f.value ?? ""}
-                      onChange={(e) => {
-                        const next = [...filters];
-                        next[idx] = { ...next[idx], value: e.target.value };
-                        setFilters(next);
-                        onUpdate?.(config.id, { filters: next });
-                        onFilterChange?.(config.id, next);
-                      }}
-                    />
+                          type="date"
+                          placeholder="Start date"
+                          value={f.value ?? ""}
+                          onChange={(e) => {
+                            const next = [...filters];
+                            next[idx] = { ...next[idx], value: e.target.value };
+                            setFilters(next);
+                            onUpdate?.(config.id, { filters: next });
+                            onFilterChange?.(config.id, next);
+                          }}
+                        />
                         <span className="text-sm self-center text-center md:text-left">
                           ถึง
                         </span>
-                    <input
+                        <input
                           className="border rounded px-2 py-1 text-sm flex-1 min-w-0"
-                      type="date"
-                      placeholder="End date"
-                      value={f.value2 ?? ""}
-                      onChange={(e) => {
-                        const next = [...filters];
+                          type="date"
+                          placeholder="End date"
+                          value={f.value2 ?? ""}
+                          onChange={(e) => {
+                            const next = [...filters];
                             next[idx] = {
                               ...next[idx],
                               value2: e.target.value,
                             };
-                        setFilters(next);
-                        onUpdate?.(config.id, { filters: next });
-                        onFilterChange?.(config.id, next);
-                      }}
-                    />
-                  </div>
-                )}
-                {(f.op === "last_days" || f.op === "last_months") &&
-                  fieldTypes[f.field] === "date" && (
-                    <input
+                            setFilters(next);
+                            onUpdate?.(config.id, { filters: next });
+                            onFilterChange?.(config.id, next);
+                          }}
+                        />
+                      </div>
+                    )}
+                    {(f.op === "last_days" || f.op === "last_months") &&
+                      fieldTypes[f.field] === "date" && (
+                        <input
                           className="border rounded px-2 py-1 text-sm flex-1 min-w-0"
-                      type="number"
-                      min="1"
-                      placeholder={
-                        f.op === "last_days" ? "จำนวนวัน" : "จำนวนเดือน"
-                      }
-                      value={f.value ?? ""}
-                      onChange={(e) => {
-                        const next = [...filters];
-                        next[idx] = { ...next[idx], value: e.target.value };
-                        setFilters(next);
-                        onUpdate?.(config.id, { filters: next });
-                        onFilterChange?.(config.id, next);
-                      }}
-                    />
-                  )}
-                {f.op !== "today" &&
+                          type="number"
+                          min="1"
+                          placeholder={
+                            f.op === "last_days" ? "จำนวนวัน" : "จำนวนเดือน"
+                          }
+                          value={f.value ?? ""}
+                          onChange={(e) => {
+                            const next = [...filters];
+                            next[idx] = { ...next[idx], value: e.target.value };
+                            setFilters(next);
+                            onUpdate?.(config.id, { filters: next });
+                            onFilterChange?.(config.id, next);
+                          }}
+                        />
+                      )}
+                    {f.op !== "today" &&
                       f.op !== "this_week" &&
                       f.op !== "last_week" &&
-                  f.op !== "between" &&
-                  f.op !== "last_days" &&
+                      f.op !== "between" &&
+                      f.op !== "last_days" &&
                       f.op !== "last_months" &&
                       f.op !== "blank" &&
                       f.op !== "not_blank" && (
-                    <input
+                        <input
                           className="border rounded px-2 py-1 text-sm flex-1 min-w-0"
-                      type={
-                        fieldTypes[f.field] === "date" ||
-                        f.op === "before" ||
-                        f.op === "after"
-                          ? "date"
-                          : "text"
-                      }
-                      placeholder={
-                        fieldTypes[f.field] === "date" ||
-                        f.op === "before" ||
-                        f.op === "after"
-                          ? "YYYY-MM-DD"
-                          : "value"
-                      }
-                      value={f.value ?? ""}
-                      onChange={(e) => {
-                        const next = [...filters];
-                        next[idx] = { ...next[idx], value: e.target.value };
-                        setFilters(next);
-                        onUpdate?.(config.id, { filters: next });
-                        onFilterChange?.(config.id, next);
-                      }}
-                    />
-                  )}
+                          type={
+                            fieldTypes[f.field] === "date" ||
+                            f.op === "before" ||
+                            f.op === "after"
+                              ? "date"
+                              : "text"
+                          }
+                          placeholder={
+                            fieldTypes[f.field] === "date" ||
+                            f.op === "before" ||
+                            f.op === "after"
+                              ? "YYYY-MM-DD"
+                              : "value"
+                          }
+                          value={f.value ?? ""}
+                          onChange={(e) => {
+                            const next = [...filters];
+                            next[idx] = { ...next[idx], value: e.target.value };
+                            setFilters(next);
+                            onUpdate?.(config.id, { filters: next });
+                            onFilterChange?.(config.id, next);
+                          }}
+                        />
+                      )}
                     <div className="flex gap-2 shrink-0">
-                {fieldTypes[f.field] === "date" && (
-                  <Button
+                      {fieldTypes[f.field] === "date" && (
+                        <Button
                           variant={
                             f.op === "today" ||
                             f.op === "this_week" ||
@@ -2002,11 +2093,11 @@ export function ChartRenderer({
                               ? "default"
                               : "outline"
                           }
-                    size="sm"
-                    onClick={() => {
-                      const next = [...filters];
-                      next[idx] = {
-                        ...next[idx],
+                          size="sm"
+                          onClick={() => {
+                            const next = [...filters];
+                            next[idx] = {
+                              ...next[idx],
                               op:
                                 f.op === "today"
                                   ? "this_week"
@@ -2015,14 +2106,14 @@ export function ChartRenderer({
                                   : f.op === "last_week"
                                   ? "today"
                                   : "today",
-                        value: undefined,
-                        value2: undefined,
-                      };
-                      setFilters(next);
-                      onUpdate?.(config.id, { filters: next });
-                      onFilterChange?.(config.id, next);
-                    }}
-                  >
+                              value: undefined,
+                              value2: undefined,
+                            };
+                            setFilters(next);
+                            onUpdate?.(config.id, { filters: next });
+                            onFilterChange?.(config.id, next);
+                          }}
+                        >
                           {f.op === "today"
                             ? "วันนี้"
                             : f.op === "this_week"
@@ -2030,76 +2121,76 @@ export function ChartRenderer({
                             : f.op === "last_week"
                             ? "สัปดาห์ที่แล้ว"
                             : "วันนี้"}
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const next = filters.filter((_, i) => i !== idx);
-                    setFilters(next);
-                    onUpdate?.(config.id, { filters: next });
-                    onFilterChange?.(config.id, next);
-                  }}
-                >
-                  ลบ
-                </Button>
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const next = filters.filter((_, i) => i !== idx);
+                          setFilters(next);
+                          onUpdate?.(config.id, { filters: next });
+                          onFilterChange?.(config.id, next);
+                        }}
+                      >
+                        ลบ
+                      </Button>
                     </div>
-              </div>
-            ))}
+                  </div>
+                ))}
                 <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                variant="outline"
-                size="sm"
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full sm:w-auto"
-                onClick={() => {
-                  const next: FilterRule[] = [
-                    ...filters,
-                    {
-                      field: allFields[0] || "",
-                      op: "equals" as FilterOperator,
-                      value: "",
-                    },
-                  ];
-                  setFilters(next);
-                  onUpdate?.(config.id, { filters: next });
-                  onFilterChange?.(config.id, next);
-                }}
-              >
-                เพิ่มเงื่อนไข
-              </Button>
-              {filters.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
+                    onClick={() => {
+                      const next: FilterRule[] = [
+                        ...filters,
+                        {
+                          field: allFields[0] || "",
+                          op: "equals" as FilterOperator,
+                          value: "",
+                        },
+                      ];
+                      setFilters(next);
+                      onUpdate?.(config.id, { filters: next });
+                      onFilterChange?.(config.id, next);
+                    }}
+                  >
+                    เพิ่มเงื่อนไข
+                  </Button>
+                  {filters.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="w-full sm:w-auto"
-                  onClick={() => {
-                    setFilters([]);
-                    onUpdate?.(config.id, { filters: [] });
-                    onFilterChange?.(config.id, []);
-                  }}
-                >
-                  ล้าง
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-        {isLoading ? (
-          <div
-            className="w-full flex flex-col items-center justify-center border rounded-lg bg-muted/50"
-            style={{ height: localHeight }}
-          >
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2"></div>
+                      onClick={() => {
+                        setFilters([]);
+                        onUpdate?.(config.id, { filters: [] });
+                        onFilterChange?.(config.id, []);
+                      }}
+                    >
+                      ล้าง
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          {isLoading ? (
+            <div
+              className="w-full flex flex-col items-center justify-center border rounded-lg bg-muted/50"
+              style={{ height: localHeight }}
+            >
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2"></div>
               <p className="text-muted-foreground text-sm">
                 กำลังโหลดข้อมูล...
               </p>
-          </div>
-        ) : (
-          renderChart()
-        )}
-      </CardContent>
-    </Card>
+            </div>
+          ) : (
+            renderChart()
+          )}
+        </CardContent>
+      </Card>
       <Toast
         message="คัดลอกลิงก์แล้ว"
         open={toastOpen}
@@ -2115,7 +2206,7 @@ export function ChartRenderer({
               {Object.entries(selectedRowData).map(([key, value]) => {
                 const fieldType = fieldTypes[key];
                 let displayValue: string;
-                
+
                 if (value == null || value === "") {
                   displayValue = "";
                 } else if (fieldType === "number") {
@@ -2134,14 +2225,16 @@ export function ChartRenderer({
                 } else {
                   displayValue = String(value);
                 }
-                
+
                 return (
                   <div key={key} className="border-b pb-2 last:border-b-0">
                     <div className="font-semibold text-sm text-muted-foreground mb-1">
                       {key}
                     </div>
-                    <div className="text-base break-words">
-                      {displayValue || <span className="text-muted-foreground">(ว่าง)</span>}
+                    <div className="text-base wrap-break-word">
+                      {displayValue || (
+                        <span className="text-muted-foreground">(ว่าง)</span>
+                      )}
                     </div>
                   </div>
                 );

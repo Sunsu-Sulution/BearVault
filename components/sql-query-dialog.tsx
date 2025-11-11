@@ -235,6 +235,9 @@ export function SQLQueryDialog({
       if (rows.length === 0) {
         if (columnsFromMetadata && columnsFromMetadata.length > 0) {
           setQueryResultColumns(columnsFromMetadata);
+          if (isMatrix && selectedColumns.length === 0) {
+            setSelectedColumns(columnsFromMetadata.slice(0, 6));
+          }
         } else {
           setQueryResultColumns([]);
         }
@@ -250,6 +253,8 @@ export function SQLQueryDialog({
 
         if (type === "table" && selectedColumns.length === 0) {
           setSelectedColumns(cols);
+        } else if (isMatrix && selectedColumns.length === 0) {
+          setSelectedColumns(cols.slice(0, 6));
         }
       }
     } catch (e: unknown) {

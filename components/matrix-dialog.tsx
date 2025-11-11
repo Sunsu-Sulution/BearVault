@@ -27,6 +27,10 @@ import {
   Columns3,
   GaugeCircle,
   Palette,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  X,
 } from "lucide-react";
 
 interface MatrixDialogProps {
@@ -54,7 +58,7 @@ export function MatrixDialog({
   >([]);
   const [isRunningQuery, setIsRunningQuery] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
-  const [selectedColumn, setSelectedColumn] = useState<string>("");
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [seriesColor, setSeriesColor] = useState<string>(
     config?.color ?? "#f97316",
   );
@@ -99,15 +103,11 @@ export function MatrixDialog({
       setSqlQuery(config.sqlQuery ?? "");
       setSeriesColor(config.color ?? "#f97316");
       // Get first column from config.columns if exists
-      if (config.columns && config.columns.length > 0) {
-        setSelectedColumn(config.columns[0]);
-      } else {
-        setSelectedColumn("");
-      }
+      setSelectedColumns(config.columns ?? []);
     } else if (!open) {
       setQueryResultData([]);
       setQueryError(null);
-      setSelectedColumn("");
+      setSelectedColumns([]);
     }
   }, [open, config]);
 
@@ -167,8 +167,8 @@ export function MatrixDialog({
       // Auto-select first column if not selected
       const firstRow = rows[0] as Record<string, unknown>;
       const cols = Object.keys(firstRow);
-      if (cols.length > 0 && !selectedColumn) {
-        setSelectedColumn(cols[0]);
+      if (cols.length > 0 && selectedColumns.length === 0) {
+        setSelectedColumns(cols);
       }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Unknown error";
@@ -195,8 +195,8 @@ export function MatrixDialog({
       return;
     }
 
-    if (!selectedColumn) {
-      setQueryError("กรุณาเลือกคอลัมน์ที่จะแสดง");
+    if (selectedColumns.length === 0) {
+      setQueryError("กรุณาเลือกคอลัมน์ที่จะแสดงอย่างน้อย 1 คอลัมน์");
       return;
     }
 
@@ -207,7 +207,7 @@ export function MatrixDialog({
       connectionId,
       database,
       sqlQuery: sqlQuery.trim(),
-      columns: [selectedColumn],
+    columns: selectedColumns,
       color: seriesColor,
     });
 
@@ -428,12 +428,18 @@ export function MatrixDialog({
 
               <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {availableColumns.map((col) => {
-                  const active = col === selectedColumn;
+                  const active = selectedColumns.includes(col);
                   return (
                     <button
                       key={col}
                       type="button"
-                      onClick={() => setSelectedColumn(col)}
+                      onClick={() => {
+                        setSelectedColumns((prev) =>
+                          prev.includes(col)
+                            ? prev.filter((c) => c !== col)
+                            : [...prev, col],
+                        );
+                      }}
                       className={cn(
                         "flex items-center justify-between rounded-xl border px-4 py-3 text-sm transition-all",
                         active
@@ -451,11 +457,95 @@ export function MatrixDialog({
                   );
                 })}
               </div>
-              {selectedColumn && (
-                <div className="mt-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
-                  ใช้คอลัมน์{" "}
-                  <span className="font-semibold">{selectedColumn}</span>{" "}
-                  เป็นค่าใน Matrix
+              {selectedColumns.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
+                    ใช้คอลัมน์{" "}
+                    <span className="font-semibold">
+                      {selectedColumns.join(", ")}
+                    </span>{" "}
+                    เป็นค่าใน Matrix
+                  </div>
+                  <div className="space-y-2 rounded-xl border bg-background/70 p-3">
+                    {selectedColumns.map((col, index) => (
+                      <div
+                        key={col}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 shadow-sm"
+                      >
+                        <span className="text-sm font-medium">{col}</span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setSelectedColumns((prev) => {
+                                if (index === 0) return prev;
+                                const next = [...prev];
+                                [next[index - 1], next[index]] = [
+                                  next[index],
+                                  next[index - 1],
+                                ];
+                                return next;
+                              })
+                            }
+                            disabled={index === 0}
+                            title="ย้ายขึ้น"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setSelectedColumns((prev) => {
+                                if (index === prev.length - 1) return prev;
+                                const next = [...prev];
+                                [next[index + 1], next[index]] = [
+                                  next[index],
+                                  next[index + 1],
+                                ];
+                                return next;
+                              })
+                            }
+                            disabled={index === selectedColumns.length - 1}
+                            title="ย้ายลง"
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setSelectedColumns((prev) =>
+                                prev.filter((c) => c !== col),
+                              )
+                            }
+                            title="นำออก"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-2"
+                        onClick={() => setSelectedColumns([])}
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        เคลียร์คอลัมน์
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
