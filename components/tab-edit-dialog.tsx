@@ -274,12 +274,7 @@ export function TabEditDialog({
           >
             ยกเลิก
           </Button>
-          <Button
-            onClick={handleSave}
-            className="min-w-[100px] bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-md"
-          >
-            บันทึก
-          </Button>
+          <Button onClick={handleSave}>บันทึก</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
