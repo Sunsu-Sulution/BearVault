@@ -694,7 +694,7 @@ export function ChartRenderer({
             const value = data[field];
             if (value == null || value === "") return null;
             // Convert to number for proper sorting
-            const num = typeof value === "number" ? value : Number(value);
+            const num = typeof value === "number" ? value : formatNumber(value);
             return Number.isNaN(num) ? null : num;
           },
           valueFormatter: (p: { value: unknown }) => formatNumber(p.value),
