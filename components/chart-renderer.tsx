@@ -716,24 +716,14 @@ export function ChartRenderer({
       }
 
       if (ft === "date") {
+        // Show raw data without date formatting
         return {
           ...d,
           field: field,
           filter: "agTextColumnFilter",
-          valueGetter: (params) => {
-            if (!params.data) return null;
-            const data = params.data as Record<string, unknown>;
-            return data[field] ?? null;
-          },
           valueFormatter: (p: { value: unknown }) => {
             if (p.value == null || p.value === "") return "";
-            const time = Date.parse(String(p.value));
-            if (Number.isNaN(time)) return String(p.value ?? "");
-            const dt = new Date(time);
-            const day = String(dt.getDate()).padStart(2, "0");
-            const month = String(dt.getMonth() + 1).padStart(2, "0");
-            const year = dt.getFullYear();
-            return `${year}-${month}-${day}`;
+            return String(p.value);
           },
           minWidth: d.minWidth || 180,
         } as ColDef;
