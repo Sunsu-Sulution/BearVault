@@ -2209,18 +2209,8 @@ export function ChartRenderer({
                   displayValue = "";
                 } else if (fieldType === "number") {
                   displayValue = formatNumber(value);
-                } else if (fieldType === "date") {
-                  const time = Date.parse(String(value));
-                  if (!Number.isNaN(time)) {
-                    const dt = new Date(time);
-                    const day = String(dt.getDate()).padStart(2, "0");
-                    const month = String(dt.getMonth() + 1).padStart(2, "0");
-                    const year = dt.getFullYear();
-                    displayValue = `${year}-${month}-${day}`;
-                  } else {
-                    displayValue = String(value);
-                  }
                 } else {
+                  // Show raw data for date and string fields
                   displayValue = String(value);
                 }
 
