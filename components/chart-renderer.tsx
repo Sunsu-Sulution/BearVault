@@ -1822,7 +1822,7 @@ export function ChartRenderer({
             )}
           </div>
         </CardHeader>
-        {onUpdate && !isMobile && config.type !== "markdown" && (
+        {onUpdate && !isMobile && (
           <div
             className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize bg-background/80 hover:bg-background border border-border rounded-tl-lg items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex z-10"
             onMouseDown={handleResizeStart}

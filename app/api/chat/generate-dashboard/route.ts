@@ -50,7 +50,7 @@ const sanitizeToEnglish = (value: string, fallback: string): string => {
 
 const enforceHalfWidth = (chart: ChartConfig): ChartConfig => ({
     ...chart,
-    width: chart.type === "table" || chart.type === "markdown" ? 100 : 49,
+    width: chart.type === "table" ? 100 : 49,
 });
 
 export async function POST(request: NextRequest) {
