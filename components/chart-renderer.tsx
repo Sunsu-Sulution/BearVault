@@ -73,10 +73,7 @@ interface ChartRendererProps {
 }
 
 const formatNumber = (value: unknown): string => {
-  if (value == null || value === "") return value as string;
-  const num = Number(value);
-  if (Number.isNaN(num)) return String(value);
-  return num.toLocaleString("en-US");
+  return value as string;
 };
 
 export function ChartRenderer({
