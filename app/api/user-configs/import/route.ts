@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { tabs, connections, chartConfigs } = body as {
-      tabs?: { tabs: unknown[] };
+      tabs?: { tabs: unknown[]; groups?: unknown[] };
       connections?: { connections: unknown[]; activeId?: string };
       chartConfigs?: Record<string, unknown>;
     };
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Import dashboard tabs
+    // Import dashboard tabs and groups
     if (tabs) {
       const dashboardTabsCollection = db.collection("dashboard_tabs");
       await dashboardTabsCollection.updateOne(
@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
           $set: {
             id: "default",
             tabs: tabs.tabs || [],
+            groups: tabs.groups || [],
             updatedAt: new Date(),
           },
         },

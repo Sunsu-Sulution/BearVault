@@ -212,12 +212,15 @@ export function useDashboardTabs(options?: UseDashboardTabsOptions) {
     save(newTabs, groups);
   };
 
-  const addGroup = (name: string) => {
-    const maxOrder = groups.length > 0 ? Math.max(...groups.map(g => g.order)) : -1;
+  const addGroup = (name: string, parentId?: string) => {
+    // Get max order for groups at the same level (same parentId)
+    const sameLevelGroups = groups.filter(g => (g.parentId || undefined) === (parentId || undefined));
+    const maxOrder = sameLevelGroups.length > 0 ? Math.max(...sameLevelGroups.map(g => g.order)) : -1;
     const newGroup: TabGroup = {
       id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name,
       order: maxOrder + 1,
+      parentId: parentId || undefined,
     };
     save(tabs, [...groups, newGroup]);
     return newGroup.id;
@@ -228,7 +231,16 @@ export function useDashboardTabs(options?: UseDashboardTabsOptions) {
     const newTabs = tabs.map(t => 
       t.groupId === groupId ? { ...t, groupId: undefined } : t
     );
-    const newGroups = groups.filter(g => g.id !== groupId);
+    // Move child groups to parent's level (or root if no parent)
+    const groupToRemove = groups.find(g => g.id === groupId);
+    const parentId = groupToRemove?.parentId;
+    const newGroups = groups
+      .filter(g => g.id !== groupId)
+      .map(g => 
+        g.parentId === groupId 
+          ? { ...g, parentId: parentId || undefined }
+          : g
+      );
     save(newTabs, newGroups);
   };
 
@@ -239,13 +251,59 @@ export function useDashboardTabs(options?: UseDashboardTabsOptions) {
     save(tabs, newGroups);
   };
 
-  const reorderGroups = (fromIndex: number, toIndex: number) => {
-    const newGroups = [...groups];
-    const [moved] = newGroups.splice(fromIndex, 1);
-    newGroups.splice(toIndex, 0, moved);
-    // Update order numbers
-    const reorderedGroups = newGroups.map((g, idx) => ({ ...g, order: idx }));
-    save(tabs, reorderedGroups);
+  const reorderGroups = (fromIndex: number, toIndex: number, parentId?: string) => {
+    // Filter groups by parent level
+    const sameLevelGroups = groups.filter(g => (g.parentId || undefined) === (parentId || undefined));
+    const otherGroups = groups.filter(g => (g.parentId || undefined) !== (parentId || undefined));
+    
+    // Reorder within same level
+    const reorderedSameLevel = [...sameLevelGroups];
+    const [moved] = reorderedSameLevel.splice(fromIndex, 1);
+    reorderedSameLevel.splice(toIndex, 0, moved);
+    
+    // Update order numbers for same level groups
+    const reorderedWithOrder = reorderedSameLevel.map((g, idx) => ({ ...g, order: idx }));
+    
+    // Combine back
+    const newGroups = [...otherGroups, ...reorderedWithOrder];
+    save(tabs, newGroups);
+  };
+
+  const moveGroupToParent = (groupId: string, targetParentId: string | null) => {
+    // Prevent moving group into itself or its descendants
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    
+    if (targetParentId === groupId) return; // Can't move into itself
+    
+    // Check if targetParentId is a descendant (would create circular reference)
+    const isDescendant = (checkId: string, ancestorId: string): boolean => {
+      const checkGroup = groups.find(g => g.id === checkId);
+      if (!checkGroup || !checkGroup.parentId) return false;
+      if (checkGroup.parentId === ancestorId) return true;
+      return isDescendant(checkGroup.parentId, ancestorId);
+    };
+    
+    if (targetParentId && isDescendant(targetParentId, groupId)) {
+      return; // Can't move into descendant
+    }
+    
+    const newGroups = groups.map(g => 
+      g.id === groupId 
+        ? { ...g, parentId: targetParentId || undefined }
+        : g
+    );
+    
+    // Recalculate order for groups at new parent level
+    const sameLevelGroups = newGroups.filter(g => 
+      (g.parentId || undefined) === (targetParentId || undefined) && g.id !== groupId
+    );
+    const maxOrder = sameLevelGroups.length > 0 ? Math.max(...sameLevelGroups.map(g => g.order)) : -1;
+    const updatedGroups = newGroups.map(g => 
+      g.id === groupId ? { ...g, order: maxOrder + 1 } : g
+    );
+    
+    save(tabs, updatedGroups);
   };
 
   const duplicateTab = async (id: string, desiredName?: string) => {
@@ -343,6 +401,7 @@ export function useDashboardTabs(options?: UseDashboardTabsOptions) {
     removeGroup,
     renameGroup,
     reorderGroups,
+    moveGroupToParent,
   };
 }
 

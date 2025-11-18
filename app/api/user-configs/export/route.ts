@@ -15,12 +15,15 @@ export async function GET() {
       chartConfigs[storageKey] = { charts: doc.charts || [] };
     });
 
-    // Get dashboard tabs
+    // Get dashboard tabs and groups
     const dashboardTabsCollection = db.collection("dashboard_tabs");
     const dashboardTabsDoc = await dashboardTabsCollection.findOne({
       id: "default",
     });
-    const tabs = dashboardTabsDoc ? { tabs: dashboardTabsDoc.tabs || [] } : null;
+    const tabs = dashboardTabsDoc ? { 
+      tabs: dashboardTabsDoc.tabs || [],
+      groups: dashboardTabsDoc.groups || []
+    } : null;
 
     // Get connections
     const connectionsCollection = db.collection("db_connections");

@@ -2,6 +2,7 @@ export type TabGroup = {
   id: string;
   name: string;
   order: number;
+  parentId?: string; // ID of parent group for nested folders. If undefined, group is at root level
 };
 
 export type DashboardTab = {

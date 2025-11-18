@@ -36,10 +36,18 @@ interface NavDocumentsWithGroupsProps {
   onUpdateTab?: (id: string, updates: Partial<DashboardTab>) => void;
   onReorder?: (fromIndex: number, toIndex: number, groupId?: string) => void;
   onMoveTabToGroup?: (tabId: string, targetGroupId: string | null) => void;
-  onAddGroup?: (name: string) => void;
+  onAddGroup?: (name: string, parentId?: string) => void;
   onRemoveGroup?: (groupId: string) => void;
   onRenameGroup?: (groupId: string, name: string) => void;
-  onReorderGroups?: (fromIndex: number, toIndex: number) => void;
+  onReorderGroups?: (
+    fromIndex: number,
+    toIndex: number,
+    parentId?: string,
+  ) => void;
+  onMoveGroupToParent?: (
+    groupId: string,
+    targetParentId: string | null,
+  ) => void;
 }
 
 export function NavDocumentsWithGroups({
@@ -56,6 +64,7 @@ export function NavDocumentsWithGroups({
   onRemoveGroup,
   onRenameGroup,
   onReorderGroups,
+  onMoveGroupToParent,
 }: NavDocumentsWithGroupsProps) {
   const { router, isLocked } = useHelperContext()();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -69,8 +78,12 @@ export function NavDocumentsWithGroups({
   );
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
 
-  // Sort groups by order
-  const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
+  // Build nested group structure
+  const buildGroupTree = (parentId?: string): TabGroup[] => {
+    return groups
+      .filter((g) => (g.parentId || undefined) === (parentId || undefined))
+      .sort((a, b) => a.order - b.order);
+  };
 
   const toggleGroup = (groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -87,13 +100,16 @@ export function NavDocumentsWithGroups({
   const isGroupCollapsed = (groupId: string) => collapsedGroups.has(groupId);
 
   // Get tabs for each group
-  const tabsByGroup = sortedGroups.reduce((acc, group) => {
+  const tabsByGroup = groups.reduce((acc, group) => {
     acc[group.id] = tabs.filter((t) => t.groupId === group.id);
     return acc;
   }, {} as Record<string, DashboardTab[]>);
 
   // Get uncategorized tabs
   const uncategorizedTabs = tabs.filter((t) => !t.groupId);
+
+  // Get root level groups
+  const rootGroups = buildGroupTree();
 
   const handleEditStart = (id: string, name: string) => {
     if (isLocked) return;
@@ -133,11 +149,11 @@ export function NavDocumentsWithGroups({
     setEditGroupName("");
   };
 
-  const handleAddGroup = () => {
+  const handleAddGroup = (parentId?: string) => {
     if (isLocked || !onAddGroup) return;
     const name = prompt("ชื่อกลุ่มใหม่");
     if (name && name.trim()) {
-      onAddGroup(name.trim());
+      onAddGroup(name.trim(), parentId);
     }
   };
 
@@ -151,10 +167,15 @@ export function NavDocumentsWithGroups({
     const url = tab.link || `/dashboard/${tab.id}`;
     const isLink = !!tab.link;
     const TabIconComponent = resolveIcon(tab.icon, TabIcon);
-    
+
     // Debug: log icon resolution
     if (process.env.NODE_ENV === "development" && tab.icon) {
-      console.log(`Tab "${tab.name}" icon:`, tab.icon, "Resolved to:", TabIconComponent);
+      console.log(
+        `Tab "${tab.name}" icon:`,
+        tab.icon,
+        "Resolved to:",
+        TabIconComponent,
+      );
     }
 
     return (
@@ -357,6 +378,260 @@ export function NavDocumentsWithGroups({
     }
   };
 
+  const renderGroup = (
+    group: TabGroup,
+    groupIndex: number,
+    parentId?: string,
+  ) => {
+    const groupTabs = tabsByGroup[group.id] || [];
+    const isGroupEditing = editingGroupId === group.id;
+    const childGroups = buildGroupTree(group.id);
+    const sameLevelGroups = buildGroupTree(parentId);
+
+    return (
+      <SidebarGroup
+        key={group.id}
+        className="group-data-[collapsible=icon]:hidden p-0.5!"
+      >
+        <div
+          className="flex items-center justify-between px-2 py-0.5"
+          draggable={!!onReorderGroups && !isGroupEditing && !isLocked}
+          onDragStart={(e) => {
+            if (isLocked) return;
+            if (onReorderGroups) {
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("application/group-id", group.id);
+              e.dataTransfer.setData(
+                "application/group-parent",
+                parentId || "",
+              );
+              if (e.currentTarget instanceof HTMLElement) {
+                e.currentTarget.style.opacity = "0.5";
+              }
+            }
+          }}
+          onDragEnd={(e) => {
+            if (e.currentTarget instanceof HTMLElement) {
+              e.currentTarget.style.opacity = "1";
+            }
+          }}
+          onDragOver={(e) => {
+            if (!onReorderGroups || isGroupEditing || isLocked) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(e) => {
+            if (!onReorderGroups || isGroupEditing || isLocked) return;
+            e.preventDefault();
+            const draggedId = e.dataTransfer.getData("application/group-id");
+            const draggedParentId = e.dataTransfer.getData(
+              "application/group-parent",
+            );
+
+            // If same parent level, reorder
+            if (draggedParentId === (parentId || "")) {
+              const draggedIndex = sameLevelGroups.findIndex(
+                (g) => g.id === draggedId,
+              );
+              if (draggedIndex !== -1 && draggedIndex !== groupIndex) {
+                onReorderGroups?.(draggedIndex, groupIndex, parentId);
+              }
+            } else if (onMoveGroupToParent) {
+              // Move to different parent (or make it a subfolder)
+              onMoveGroupToParent(draggedId, group.id);
+            }
+          }}
+        >
+          {isGroupEditing ? (
+            <div className="flex items-center gap-1 flex-1">
+              <Input
+                value={editGroupName}
+                onChange={(e) => setEditGroupName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleGroupEditSave(group.id);
+                  } else if (e.key === "Escape") {
+                    handleGroupEditCancel();
+                  }
+                }}
+                className="h-6 text-sm flex-1"
+                autoFocus
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={() => handleGroupEditSave(group.id)}
+              >
+                ✓
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={handleGroupEditCancel}
+              >
+                ✕
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-1 flex-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleGroup(group.id);
+                  }}
+                >
+                  {isGroupCollapsed(group.id) ? (
+                    <IconChevronRight className="h-4 w-4" />
+                  ) : (
+                    <IconChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
+                <SidebarGroupLabel
+                  className="flex items-center gap-1 flex-1 cursor-pointer"
+                  onClick={() => toggleGroup(group.id)}
+                >
+                  <IconFolder className="h-4 w-4" />
+                  {group.name}
+                </SidebarGroupLabel>
+              </div>
+              {!isLocked && (onRenameGroup || onRemoveGroup || onAddGroup) && (
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-40 transition-opacity">
+                  {onAddGroup && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddGroup(group.id);
+                      }}
+                      title="เพิ่ม Sub Folder"
+                    >
+                      <IconPlus className="h-3 w-3" />
+                    </Button>
+                  )}
+                  {onRenameGroup && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleGroupEditStart(group.id, group.name);
+                      }}
+                    >
+                      <IconPencil className="h-3 w-3" />
+                    </Button>
+                  )}
+                  {onRemoveGroup && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-destructive hover:text-destructive opacity-60 hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (
+                          confirm(`คุณต้องการลบกลุ่ม "${group.name}" หรือไม่?`)
+                        ) {
+                          onRemoveGroup(group.id);
+                        }
+                      }}
+                    >
+                      <IconX className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {!isGroupCollapsed(group.id) && (
+          <SidebarMenu>
+            {/* Render child groups recursively */}
+            {childGroups.map((childGroup, childIndex) =>
+              renderGroup(childGroup, childIndex, group.id),
+            )}
+            {/* Render tabs in this group */}
+            {groupTabs.map((tab, tabIndex) =>
+              renderTabItem(tab, tabIndex, group.id),
+            )}
+            {/* Drop zone for moving tabs to this group */}
+            {!isLocked && onMoveTabToGroup && (
+              <div
+                className={`px-2 py-1 border-2 border-dashed rounded transition-colors ${
+                  dragOverGroupId === group.id
+                    ? "border-primary bg-primary/10"
+                    : "border-transparent"
+                }`}
+                onDragOver={(e) => {
+                  if (draggedTabId && draggedTabId !== group.id) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverGroupId(group.id);
+                  }
+                }}
+                onDragLeave={() => {
+                  setDragOverGroupId(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const draggedId = e.dataTransfer.getData("text/plain");
+                  if (draggedId && onMoveTabToGroup) {
+                    onMoveTabToGroup(draggedId, group.id);
+                  }
+                  setDraggedTabId(null);
+                  setDragOverGroupId(null);
+                }}
+              >
+                <span className="text-xs text-muted-foreground">
+                  วางแท็บที่นี่
+                </span>
+              </div>
+            )}
+            {/* Drop zone for moving groups into this group (make it a subfolder) */}
+            {!isLocked && onMoveGroupToParent && (
+              <div
+                className={`px-2 py-1 border-2 border-dashed rounded transition-colors border-transparent`}
+                onDragOver={(e) => {
+                  const draggedId = e.dataTransfer.getData(
+                    "application/group-id",
+                  );
+                  if (draggedId && draggedId !== group.id) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const draggedId = e.dataTransfer.getData(
+                    "application/group-id",
+                  );
+                  if (
+                    draggedId &&
+                    draggedId !== group.id &&
+                    onMoveGroupToParent
+                  ) {
+                    onMoveGroupToParent(draggedId, group.id);
+                  }
+                }}
+              >
+                <span className="text-xs text-muted-foreground">
+                  วางกลุ่มที่นี่เพื่อสร้าง Sub Folder
+                </span>
+              </div>
+            )}
+          </SidebarMenu>
+        )}
+      </SidebarGroup>
+    );
+  };
+
   return (
     <>
       <TabEditDialog
@@ -367,197 +642,14 @@ export function NavDocumentsWithGroups({
         tab={editingTab || null}
         onSave={handleUpdateTab}
       />
-      {/* Groups */}
-      {sortedGroups.map((group, groupIndex) => {
-        const groupTabs = tabsByGroup[group.id] || [];
-        const isGroupEditing = editingGroupId === group.id;
-
-        return (
-          <SidebarGroup
-            key={group.id}
-            className="group-data-[collapsible=icon]:hidden"
-          >
-            <div
-              className="flex items-center justify-between px-2 py-1"
-              draggable={!!onReorderGroups && !isGroupEditing && !isLocked}
-              onDragStart={(e) => {
-                if (isLocked) return;
-                if (onReorderGroups) {
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("application/group-id", group.id);
-                  if (e.currentTarget instanceof HTMLElement) {
-                    e.currentTarget.style.opacity = "0.5";
-                  }
-                }
-              }}
-              onDragEnd={(e) => {
-                if (e.currentTarget instanceof HTMLElement) {
-                  e.currentTarget.style.opacity = "1";
-                }
-              }}
-              onDragOver={(e) => {
-                if (!onReorderGroups || isGroupEditing || isLocked) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-              }}
-              onDrop={(e) => {
-                if (!onReorderGroups || isGroupEditing || isLocked) return;
-                e.preventDefault();
-                const draggedId = e.dataTransfer.getData(
-                  "application/group-id",
-                );
-                const draggedIndex = sortedGroups.findIndex(
-                  (g) => g.id === draggedId,
-                );
-                if (draggedIndex !== -1 && draggedIndex !== groupIndex) {
-                  onReorderGroups(draggedIndex, groupIndex);
-                }
-              }}
-            >
-              {isGroupEditing ? (
-                <div className="flex items-center gap-1 flex-1">
-                  <Input
-                    value={editGroupName}
-                    onChange={(e) => setEditGroupName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleGroupEditSave(group.id);
-                      } else if (e.key === "Escape") {
-                        handleGroupEditCancel();
-                      }
-                    }}
-                    className="h-6 text-sm flex-1"
-                    autoFocus
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={() => handleGroupEditSave(group.id)}
-                  >
-                    ✓
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={handleGroupEditCancel}
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-1 flex-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleGroup(group.id);
-                      }}
-                    >
-                      {isGroupCollapsed(group.id) ? (
-                        <IconChevronRight className="h-4 w-4" />
-                      ) : (
-                        <IconChevronDown className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <SidebarGroupLabel
-                      className="flex items-center gap-1 flex-1 cursor-pointer"
-                      onClick={() => toggleGroup(group.id)}
-                    >
-                      <IconFolder className="h-4 w-4" />
-                      {group.name}
-                    </SidebarGroupLabel>
-                  </div>
-                  {!isLocked && (onRenameGroup || onRemoveGroup) && (
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-40 transition-opacity">
-                      {onRenameGroup && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleGroupEditStart(group.id, group.name);
-                          }}
-                        >
-                          <IconPencil className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {onRemoveGroup && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 text-destructive hover:text-destructive opacity-60 hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (
-                              confirm(
-                                `คุณต้องการลบกลุ่ม "${group.name}" หรือไม่?`,
-                              )
-                            ) {
-                              onRemoveGroup(group.id);
-                            }
-                          }}
-                        >
-                          <IconX className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            {!isGroupCollapsed(group.id) && (
-              <SidebarMenu>
-                {groupTabs.map((tab, tabIndex) =>
-                  renderTabItem(tab, tabIndex, group.id),
-                )}
-                {/* Drop zone for moving tabs to this group */}
-                {!isLocked && onMoveTabToGroup && (
-                  <div
-                    className={`px-2 py-1 border-2 border-dashed rounded transition-colors ${
-                      dragOverGroupId === group.id
-                        ? "border-primary bg-primary/10"
-                        : "border-transparent"
-                    }`}
-                    onDragOver={(e) => {
-                      if (draggedTabId && draggedTabId !== group.id) {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setDragOverGroupId(group.id);
-                      }
-                    }}
-                    onDragLeave={() => {
-                      setDragOverGroupId(null);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const draggedId = e.dataTransfer.getData("text/plain");
-                      if (draggedId && onMoveTabToGroup) {
-                        onMoveTabToGroup(draggedId, group.id);
-                      }
-                      setDraggedTabId(null);
-                      setDragOverGroupId(null);
-                    }}
-                  >
-                    <span className="text-xs text-muted-foreground">
-                      วางแท็บที่นี่
-                    </span>
-                  </div>
-                )}
-              </SidebarMenu>
-            )}
-          </SidebarGroup>
-        );
-      })}
+      {/* Render Groups Recursively */}
+      {rootGroups.map((group, groupIndex) =>
+        renderGroup(group, groupIndex, undefined),
+      )}
 
       {/* Uncategorized tabs */}
       {uncategorizedTabs.length > 0 && (
-        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden p-0.5!">
           <SidebarGroupLabel>Uncategorized</SidebarGroupLabel>
           <SidebarMenu>
             {uncategorizedTabs.map((tab, index) => renderTabItem(tab, index))}
@@ -600,12 +692,12 @@ export function NavDocumentsWithGroups({
 
       {/* Add Group Button */}
       {!isLocked && onAddGroup && (
-        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden p-0.5!">
           <Button
             variant="ghost"
             size="sm"
             className="w-full justify-start"
-            onClick={handleAddGroup}
+            onClick={() => handleAddGroup()}
           >
             <IconPlus className="h-4 w-4 mr-2" />
             เพิ่มกลุ่ม

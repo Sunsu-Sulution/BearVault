@@ -42,6 +42,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     removeGroup,
     renameGroup,
     reorderGroups,
+    moveGroupToParent,
   } = useDashboardTabs({
       userId: userInfo?.user_id || userInfo?.email || "",
       userName: userInfo?.name || userInfo?.en_name || "",
@@ -211,6 +212,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             onRemoveGroup={removeGroup}
             onRenameGroup={renameGroup}
             onReorderGroups={reorderGroups}
+            onMoveGroupToParent={moveGroupToParent}
           />
         )}
         <NavDocuments
