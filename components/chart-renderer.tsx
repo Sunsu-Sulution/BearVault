@@ -713,14 +713,36 @@ export function ChartRenderer({
       }
 
       if (ft === "date") {
-        // Show raw data without date formatting
+        // For date columns, show date and time in Thai timezone (UTC+7)
         return {
           ...d,
           field: field,
           filter: "agTextColumnFilter",
           valueFormatter: (p: { value: unknown }) => {
             if (p.value == null || p.value === "") return "";
-            return String(p.value);
+            const valueStr = String(p.value);
+            // Try to parse as date and format in Thai timezone (UTC+7)
+            const dateTime = Date.parse(valueStr);
+            if (!Number.isNaN(dateTime)) {
+              const dt = new Date(dateTime);
+              // Convert to Thai time (UTC+7) by adding 7 hours
+              const thaiTime = new Date(dt.getTime() + 7 * 60 * 60 * 1000);
+              // Format as YYYY-MM-DD HH:MM:SS
+              const year = thaiTime.getUTCFullYear();
+              const month = String(thaiTime.getUTCMonth() + 1).padStart(2, "0");
+              const day = String(thaiTime.getUTCDate()).padStart(2, "0");
+              const hours = String(thaiTime.getUTCHours()).padStart(2, "0");
+              const minutes = String(thaiTime.getUTCMinutes()).padStart(2, "0");
+              const seconds = String(thaiTime.getUTCSeconds()).padStart(2, "0");
+              return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            }
+            // If parsing fails, try to extract YYYY-MM-DD pattern from string
+            const dateMatch = valueStr.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (dateMatch) {
+              return dateMatch[1];
+            }
+            // Fallback to original value
+            return valueStr;
           },
           minWidth: d.minWidth || 180,
         } as ColDef;

@@ -26,7 +26,6 @@ import { useHelperContext } from "./providers/helper-provider";
 import { useParams, useRouter } from "next/navigation";
 import { ActiveViewers } from "@/components/active-viewers";
 import { ChangeHistoryDialog } from "@/components/change-history-dialog";
-import { PermissionsDialog } from "@/components/permissions-dialog";
 import { useDashboardTabs } from "@/hooks/use-dashboard-tabs";
 import { useNotes } from "@/hooks/use-notes";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -370,7 +369,6 @@ export function SiteHeader() {
                 )}
               </Button>
             )}
-            <PermissionsDialog />
             <Button
               variant="default"
               size={isMobile ? "icon" : "sm"}

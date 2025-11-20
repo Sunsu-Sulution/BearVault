@@ -21,10 +21,14 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarGroup,
+  SidebarGroupLabel,
 } from "@/components/ui/sidebar";
 import { useHelperContext } from "@/components/providers/helper-provider";
 import { useDashboardTabs } from "@/hooks/use-dashboard-tabs";
 import { Button } from "@/components/ui/button";
+import { PermissionsDialog } from "@/components/permissions-dialog";
+import { IconSettings } from "@tabler/icons-react";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { isLocked, userInfo } = useHelperContext()();
@@ -215,16 +219,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             onMoveGroupToParent={moveGroupToParent}
           />
         )}
-        <NavDocuments
-          label="Connections"
-          items={[
-            {
-              name: "Manage Connections",
-              url: "/dashboard/db-connection",
-              icon: IconDatabase,
-            },
-          ]}
-        />
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+          <SidebarGroupLabel>Developer Console</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <div
+                  className="flex items-center gap-2 w-full cursor-pointer"
+                  onClick={() => {
+                    const url = "/dashboard/db-connection";
+                    window.location.href = url;
+                  }}
+                >
+                  <IconDatabase className="shrink-0" />
+                  <span className="truncate">Manage Connections</span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <PermissionsDialog />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
         <div className="flex flex-col gap-2 w-full">

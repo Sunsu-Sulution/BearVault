@@ -162,9 +162,10 @@ export function PermissionsDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" title="จัดการสิทธิ์ผู้ใช้">
-          <IconSettings className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2 w-full cursor-pointer">
+          <IconSettings className="h-4 w-4 shrink-0" />
+          <span className="truncate">จัดการสิทธิ์ผู้ใช้</span>
+        </div>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[80vh]">
         <DialogHeader>
