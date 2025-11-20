@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { ChartConfig } from "@/types/chart";
+import Editor from "@monaco-editor/react";
 import {
   Dialog,
   DialogContent,
@@ -355,12 +356,35 @@ export function MatrixDialog({
               </div>
             </div>
 
-            <textarea
-              value={sqlQuery}
-              onChange={(e) => setSqlQuery(e.target.value)}
-              placeholder="SELECT COUNT(*) AS total_orders, SUM(amount) AS total_amount FROM orders WHERE status = 'completed' LIMIT 1"
-              className="mt-4 w-full min-h-[140px] rounded-xl border bg-background p-4 font-mono text-sm"
-            />
+            <div className="mt-4 relative border rounded-xl overflow-hidden bg-background">
+              <Editor
+                height="300px"
+                defaultLanguage="sql"
+                value={sqlQuery}
+                onChange={(value) => setSqlQuery(value || "")}
+                theme="light"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  lineNumbers: "off",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on",
+                  automaticLayout: true,
+                  tabSize: 2,
+                  insertSpaces: true,
+                  formatOnPaste: true,
+                  formatOnType: true,
+                  suggestOnTriggerCharacters: true,
+                  quickSuggestions: true,
+                  placeholder: "SELECT COUNT(*) AS total_orders, SUM(amount) AS total_amount FROM orders WHERE status = 'completed' LIMIT 1",
+                }}
+                loading={
+                  <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                    กำลังโหลด editor...
+                  </div>
+                }
+              />
+            </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <Button
                 onClick={handleRunQuery}

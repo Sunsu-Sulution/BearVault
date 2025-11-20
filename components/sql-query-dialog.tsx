@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { ChartConfig, ChartType } from "@/types/chart";
+import Editor from "@monaco-editor/react";
 import {
   Dialog,
   DialogContent,
@@ -520,12 +521,35 @@ export function SQLQueryDialog({
               </div>
             </div>
 
-            <textarea
-              value={sqlQuery}
-              onChange={(e) => setSqlQuery(e.target.value)}
-              placeholder="SELECT date, SUM(total_amount) AS total_sales FROM orders GROUP BY date ORDER BY date DESC"
-              className="mt-4 w-full min-h-[160px] rounded-xl border bg-background p-4 font-mono text-sm"
-            />
+            <div className="mt-4 relative border rounded-xl overflow-hidden bg-background">
+              <Editor
+                height="300px"
+                defaultLanguage="sql"
+                value={sqlQuery}
+                onChange={(value) => setSqlQuery(value || "")}
+                theme="light"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  lineNumbers: "off",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on",
+                  automaticLayout: true,
+                  tabSize: 2,
+                  insertSpaces: true,
+                  formatOnPaste: true,
+                  formatOnType: true,
+                  suggestOnTriggerCharacters: true,
+                  quickSuggestions: true,
+                  placeholder: "SELECT date, SUM(total_amount) AS total_sales FROM orders GROUP BY date ORDER BY date DESC",
+                }}
+                loading={
+                  <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                    กำลังโหลด editor...
+                  </div>
+                }
+              />
+            </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <Button
                 onClick={handleRunQuery}
